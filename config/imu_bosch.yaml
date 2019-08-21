@@ -3,6 +3,16 @@ port: /dev/ttyUSB0
 # Tf frame id
 frame_id: imu_bosch_link
 # Data reading frequency
-freqency: 200
+frequency: 100
 # Sensor operation mode --> modes could be found in sensor datasheet
-operation_mode: 0x08
+operation_mode: 0x0C
+
+# Calibration offsets (requires jkutia/bosch_imu_driver)
+# Signed 16 bit int, express as hex for compatability
+
+# +/- 2000 units (at max 2G)    (1 unit = 1 mg = 1 LSB = 0.01 m/s2)
+acc_offset: [0xFFEC, 0x00A5, 0xFFE8]
+# +/- 6400 units                (1 unit = 1/16 uT)
+mag_offset: [0xFFB4, 0xFE9E, 0x027D]
+# +/- 2000 units up to 32000 (dps range dependent)               (1 unit = 1/16 dps)
+gyr_offset: [0x0002, 0xFFFF, 0xFFFF]
