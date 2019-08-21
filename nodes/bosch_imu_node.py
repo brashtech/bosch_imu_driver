@@ -39,9 +39,10 @@ import rospy
 import sys
 import struct as st
 import binascii
+import time
 
-from time import time
 from sensor_msgs.msg import Imu, Temperature, MagneticField
+from geometry_msgs.msg import Quaternion
 
 from tf.transformations import quaternion_from_euler
 from dynamic_reconfigure.server import Server
@@ -110,16 +111,51 @@ START_BYTE_RESP = 0xbb
 READ = 0x01
 WRITE = 0x00
 
+read_stamp = rospy.Time(0.0)
+
+# Default calibration values (taken from desk test approximation.) [x y z]
+# Signed hex 16 bit representation
+# +/- 2000 units (at max 2G)    (1 unit = 1 mg = 1 LSB = 0.01 m/s2)
+ACC_OFFSET_DEFAULT = [0xFFEC, 0x00A5, 0xFFE8]
+# +/- 6400 units                (1 unit = 1/16 uT)
+MAG_OFFSET_DEFAULT = [0xFFB4, 0xFE9E, 0x027D]
+# +/- 2000 units up to 32000 (dps range dependent)               (1 unit = 1/16 dps)
+GYR_OFFSET_DEFAULT = [0x0002, 0xFFFF, 0xFFFF]
+
 # Read data from IMU
 def read_from_dev(ser, reg_addr, length):
     buf_out = bytearray()
-    buf_out.append(START_BYTE_WR)
-    buf_out.append(READ)
-    buf_out.append(reg_addr)
-    buf_out.append(length)
 
     try:
+        buf_out.append(START_BYTE_WR)
+        ser.flushInput()
         ser.write(buf_out)
+        ser.flushOutput()
+        buf_out.pop()
+        rospy.sleep(0.0003)
+
+        buf_out.append(READ)
+        #ser.flushInput()
+        ser.write(buf_out)
+        #ser.flushOutput()
+        buf_out.pop()
+        rospy.sleep(0.0003)
+
+        buf_out.append(reg_addr)
+        #ser.flushInput()
+        ser.write(buf_out)
+        #ser.flushOutput()
+        buf_out.pop()
+        rospy.sleep(0.0003)
+
+        buf_out.append(length)
+        #ser.flushInput()
+        ser.write(buf_out)
+        #ser.flushOutput()
+        buf_out.pop()
+        rospy.sleep(0.0003)
+
+        read_stamp = rospy.Time.now()
         buf_in = bytearray(ser.read(2 + length))
 
         # print("Reading, wr: ", binascii.hexlify(buf_out), "  re: ", binascii.hexlify(buf_in))
@@ -128,7 +164,7 @@ def read_from_dev(ser, reg_addr, length):
 
     # Check if response is correct
     if (buf_in.__len__() != (2 + length)) or (buf_in[0] != START_BYTE_RESP):
-        #rospy.logerr("Incorrect Bosh IMU device response.")
+        rospy.logerr("Incorrect Bosch IMU device response.")
         return 0
     buf_in.pop(0)
     buf_in.pop(0)
@@ -157,28 +193,113 @@ def write_to_dev(ser, reg_addr, length, data):
     return True
 
 
+# Read calibration status for sys/gyro/acc/mag and display to screen (JK) (0 = bad, 3 = best)
+def get_calib_status (ser):
+    msg = Quaternion()
+    calib_status = read_from_dev(ser, CALIB_STAT, 1)
+    try:
+        sys = (calib_status[0] >> 6) & 0x03
+        gyro = (calib_status[0] >> 4) & 0x03;
+        accel = (calib_status[0] >> 2) & 0x03;
+        mag = calib_status[0] & 0x03; 
+        #rospy.loginfo('Sys: %d, Gyro: %d, Accel: %d, Mag: %d', sys, gyro, accel, mag)
+        msg.x = gyro
+        msg.y = accel
+        msg.z = mag
+        msg.w = sys
+
+        return msg
+
+    except:
+        rospy.loginfo('No calibration data received')
+
+# Read all calibration offsets and print to screen (JK)
+def get_calib_offsets (ser):
+    try:
+        accel_offset_read = read_from_dev(ser, ACC_OFFSET, 6)
+        accel_offset_read_x = (accel_offset_read[1] << 8) | accel_offset_read[0]   # Combine MSB and LSB registers into one decimal
+        accel_offset_read_y = (accel_offset_read[3] << 8) | accel_offset_read[2]   # Combine MSB and LSB registers into one decimal
+        accel_offset_read_z = (accel_offset_read[5] << 8) | accel_offset_read[4]   # Combine MSB and LSB registers into one decimal
+
+        mag_offset_read = read_from_dev(ser, MAG_OFFSET, 6)
+        mag_offset_read_x = (mag_offset_read[1] << 8) | mag_offset_read[0]   # Combine MSB and LSB registers into one decimal
+        mag_offset_read_y = (mag_offset_read[3] << 8) | mag_offset_read[2]   # Combine MSB and LSB registers into one decimal
+        mag_offset_read_z = (mag_offset_read[5] << 8) | mag_offset_read[4]   # Combine MSB and LSB registers into one decimal
+
+        gyro_offset_read = read_from_dev(ser, GYR_OFFSET, 6)
+        gyro_offset_read_x = (gyro_offset_read[1] << 8) | gyro_offset_read[0]   # Combine MSB and LSB registers into one decimal
+        gyro_offset_read_y = (gyro_offset_read[3] << 8) | gyro_offset_read[2]   # Combine MSB and LSB registers into one decimal
+        gyro_offset_read_z = (gyro_offset_read[5] << 8) | gyro_offset_read[4]   # Combine MSB and LSB registers into one decimal
+
+        rospy.loginfo('Accel offsets (x y z): %d %d %d, Mag offsets (x y z): %d %d %d, Gyro offsets (x y z): %d %d %d', accel_offset_read_x, accel_offset_read_y, accel_offset_read_z, mag_offset_read_x, mag_offset_read_y, mag_offset_read_z, gyro_offset_read_x, gyro_offset_read_y, gyro_offset_read_z)
+    except:
+        rospy.loginfo('Calibration data cant be read')
+
+# Write out calibration values (define as 16 bit signed hex)
+def set_calib_offsets (ser, acc_offset, mag_offset, gyr_offset):
+    # Must switch to config mode to write out
+    if not(write_to_dev(ser, OPER_MODE, 1, OPER_MODE_CONFIG)):
+       rospy.logerr("Unable to set IMU into config mode.")
+    time.sleep(0.025)
+
+    # Seems to only work when writing 1 register at a time
+    try:
+        write_to_dev(ser, ACC_OFFSET, 1, acc_offset[0] & 0xFF)                # ACC X LSB
+        write_to_dev(ser, ACC_OFFSET+1, 1, (acc_offset[0] >> 8) & 0xFF)       # ACC X MSB
+        write_to_dev(ser, ACC_OFFSET+2, 1, acc_offset[1] & 0xFF)               
+        write_to_dev(ser, ACC_OFFSET+3, 1, (acc_offset[1] >> 8) & 0xFF)       
+        write_to_dev(ser, ACC_OFFSET+4, 1, acc_offset[2] & 0xFF)               
+        write_to_dev(ser, ACC_OFFSET+5, 1, (acc_offset[2] >> 8) & 0xFF)     
+
+        write_to_dev(ser, MAG_OFFSET, 1, mag_offset[0] & 0xFF)               
+        write_to_dev(ser, MAG_OFFSET+1, 1, (mag_offset[0] >> 8) & 0xFF)     
+        write_to_dev(ser, MAG_OFFSET+2, 1, mag_offset[1] & 0xFF)               
+        write_to_dev(ser, MAG_OFFSET+3, 1, (mag_offset[1] >> 8) & 0xFF)       
+        write_to_dev(ser, MAG_OFFSET+4, 1, mag_offset[2] & 0xFF)               
+        write_to_dev(ser, MAG_OFFSET+5, 1, (mag_offset[2] >> 8) & 0xFF)       
+
+        write_to_dev(ser, GYR_OFFSET, 1, gyr_offset[0] & 0xFF)                
+        write_to_dev(ser, GYR_OFFSET+1, 1, (gyr_offset[0] >> 8) & 0xFF)       
+        write_to_dev(ser, GYR_OFFSET+2, 1, gyr_offset[1] & 0xFF)               
+        write_to_dev(ser, GYR_OFFSET+3, 1, (gyr_offset[1] >> 8) & 0xFF)       
+        write_to_dev(ser, GYR_OFFSET+4, 1, gyr_offset[2] & 0xFF)               
+        write_to_dev(ser, GYR_OFFSET+5, 1, (gyr_offset[2] >> 8) & 0xFF)            
+
+        return True
+
+    except:
+        return False
+
+
 imu_data = Imu()            # Filtered data
 imu_raw = Imu()             # Raw IMU data
 temperature_msg = Temperature() # Temperature
 mag_msg = MagneticField()       # Magnetometer data
+calib_msg = Quaternion()    # Calibration data
 
 # Main function
 if __name__ == '__main__':
     rospy.init_node("bosch_imu_node")
 
     # Sensor measurements publishers
-    pub_data = rospy.Publisher('imu/data', Imu, queue_size=1)
-    pub_raw = rospy.Publisher('imu/raw', Imu, queue_size=1)
-    pub_mag = rospy.Publisher('imu/mag', MagneticField, queue_size=1)
-    pub_temp = rospy.Publisher('imu/temp', Temperature, queue_size=1)
+    pub_data = rospy.Publisher('imu/data', Imu, queue_size=10)
+    pub_raw = rospy.Publisher('imu/raw', Imu, queue_size=10)
+    pub_mag = rospy.Publisher('imu/mag', MagneticField, queue_size=10)
+    pub_temp = rospy.Publisher('imu/temp', Temperature, queue_size=10)
+    pub_calib = rospy.Publisher('imu/calib', Quaternion, queue_size=10)
 
     # srv = Server(imuConfig, reconfig_callback)  # define dynamic_reconfigure callback
 
     # Get parameters values
     port = rospy.get_param('~port', '/dev/ttyUSB0')
     frame_id = rospy.get_param('~frame_id', 'imu_link')
-    frequency = rospy.get_param('frequency', 100)
-    operation_mode = rospy.get_param('operation_mode', OPER_MODE_NDOF)
+    frequency = rospy.get_param('~frequency', 100)
+    operation_mode = rospy.get_param('~operation_mode', OPER_MODE_NDOF)
+
+    # Read in calibration offsets from yaml
+    acc_offset = rospy.get_param('~acc_offset', ACC_OFFSET_DEFAULT)
+    mag_offset = rospy.get_param('~mag_offset', MAG_OFFSET_DEFAULT)
+    gyr_offset = rospy.get_param('~gyr_offset', GYR_OFFSET_DEFAULT)
 
     # Open serial port
     rospy.loginfo("Opening serial port: %s...", port)
@@ -216,10 +337,18 @@ if __name__ == '__main__':
     if not(write_to_dev(ser, AXIS_MAP_SIGN, 1, 0x06)):
         rospy.logerr("Unable to set IMU axis signs.")
 
-    if not(write_to_dev(ser, OPER_MODE, 1, OPER_MODE_NDOF)):
+    # Write out calibration values (JK)
+    if not(set_calib_offsets(ser, acc_offset, mag_offset, gyr_offset)):
+       rospy.logerr("Unable to set calibration offsets.")
+
+    if not(write_to_dev(ser, OPER_MODE, 1, operation_mode)):
         rospy.logerr("Unable to set IMU operation mode into operation mode.")
 
+    rospy.loginfo("Setting operation mode to %d...", operation_mode)
+
     rospy.loginfo("Bosch BNO055 IMU configuration complete.")
+
+    rospy.loginfo("Polling at rate %d...", frequency)
 
     rate = rospy.Rate(frequency)
 
@@ -229,11 +358,30 @@ if __name__ == '__main__':
     gyr_fact = 900.0
     seq = 0
 
+    calibrated_state = 0
+    j = 0
+
     while not rospy.is_shutdown():
+        ########### DEBUG (JK) ############
+        #get_calib_status(ser)
+        #get_calib_offsets(ser)
+        ###################################
+
+        # JK added: Publish calibration status, only call IMU read if calibration hasn't finished
+        j = j+1 # Only run every 10 cycles (10Hz @ 100Hz)
+        if (j>=10):
+            if (calibrated_state == 0):
+                calib_msg = get_calib_status(ser)
+                if (calib_msg.x == 3 and calib_msg.y == 3 and calib_msg.z == 3 and calib_msg.w == 3):
+                    calibrated_state = 1
+            pub_calib.publish(calib_msg)
+            j = 0
+        ##################################
+
         buf = read_from_dev(ser, ACCEL_DATA, 45)
         if buf != 0:
             # Publish raw data
-            imu_raw.header.stamp = rospy.Time.now()
+            imu_raw.header.stamp = read_stamp
             imu_raw.header.frame_id = frame_id
             imu_raw.header.seq = seq
             imu_raw.orientation_covariance[0] = -1
@@ -251,7 +399,7 @@ if __name__ == '__main__':
             #                  imu_data.linear_acceleration.y, imu_data.linear_acceleration.z, ")")
 
             # Publish filtered data
-            imu_data.header.stamp = rospy.Time.now()
+            imu_data.header.stamp = read_stamp
             imu_data.header.frame_id = frame_id
             imu_data.header.seq = seq
             imu_data.orientation.w = float(st.unpack('h', st.pack('BB', buf[24], buf[25]))[0])
@@ -269,7 +417,7 @@ if __name__ == '__main__':
             pub_data.publish(imu_data)
 
             # Publish magnetometer data
-            mag_msg.header.stamp = rospy.Time.now()
+            mag_msg.header.stamp = read_stamp
             mag_msg.header.frame_id = frame_id
             mag_msg.header.seq = seq
             mag_msg.magnetic_field.x = float(st.unpack('h', st.pack('BB', buf[6], buf[7]))[0]) / mag_fact
@@ -278,7 +426,7 @@ if __name__ == '__main__':
             pub_mag.publish(mag_msg)
 
             # Publish temperature
-            temperature_msg.header.stamp = rospy.Time.now()
+            temperature_msg.header.stamp = read_stamp
             temperature_msg.header.frame_id = frame_id
             temperature_msg.header.seq = seq
             temperature_msg.temperature = buf[44]
@@ -287,7 +435,7 @@ if __name__ == '__main__':
             #yaw = float(st.unpack('h', st.pack('BB', buf[18], buf[19]))[0]) / 16.0
             #roll = float(st.unpack('h', st.pack('BB', buf[20], buf[21]))[0]) / 16.0
             #pitch = float(st.unpack('h', st.pack('BB', buf[22], buf[23]))[0]) / 16.0
-            #           print "RPY=(%.2f %.2f %.2f)" %(roll, pitch, yaw)
+            #print "RPY=(%.2f %.2f %.2f)" %(roll, pitch, yaw)
 
             seq = seq + 1
         rate.sleep()
