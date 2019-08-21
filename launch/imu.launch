@@ -8,6 +8,7 @@
     <remap from="/imu/raw" to="/imu_bosch/raw"/>
     <remap from="/imu/temp" to="/imu_bosch/temp"/>
     <remap from="/imu/mag" to="/imu_bosch/mag"/>
+    <remap from="/imu/calib" to="/imu_bosch/calib"/>
   </node>
 
 	<!-- IMU Bosh transformation publisher -->
