@@ -196,8 +196,8 @@ def write_to_dev(ser, reg_addr, length, data):
 # Read calibration status for sys/gyro/acc/mag and display to screen (JK) (0 = bad, 3 = best)
 def get_calib_status (ser):
     msg = Quaternion()
-    calib_status = read_from_dev(ser, CALIB_STAT, 1)
     try:
+        calib_status = read_from_dev(ser, CALIB_STAT, 1)
         sys = (calib_status[0] >> 6) & 0x03
         gyro = (calib_status[0] >> 4) & 0x03;
         accel = (calib_status[0] >> 2) & 0x03;
@@ -207,11 +207,13 @@ def get_calib_status (ser):
         msg.y = accel
         msg.z = mag
         msg.w = sys
-
-        return msg
-
     except:
-        rospy.loginfo('No calibration data received')
+        msg.x = 0
+        msg.y = 0
+        msg.z = 0
+        msg.w = 0
+    return msg
+        
 
 # Read all calibration offsets and print to screen (JK)
 def get_calib_offsets (ser):
