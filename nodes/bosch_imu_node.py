@@ -155,6 +155,7 @@ def read_from_dev(ser, reg_addr, length):
         buf_out.pop()
         rospy.sleep(0.0003)
 
+        global read_stamp
         read_stamp = rospy.Time.now()
         buf_in = bytearray(ser.read(2 + length))
 
