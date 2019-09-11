@@ -40,6 +40,7 @@ import sys
 import struct as st
 import binascii
 import time
+import math
 
 from sensor_msgs.msg import Imu, Temperature, MagneticField
 from geometry_msgs.msg import Quaternion
@@ -409,6 +410,14 @@ if __name__ == '__main__':
             imu_data.orientation.x = float(st.unpack('h', st.pack('BB', buf[26], buf[27]))[0])
             imu_data.orientation.y = float(st.unpack('h', st.pack('BB', buf[28], buf[29]))[0])
             imu_data.orientation.z = float(st.unpack('h', st.pack('BB', buf[30], buf[31]))[0])
+            # Convert to unit quaternion
+            quat_length = math.sqrt(imu_data.orientation.x**2 + imu_data.orientation.y**2 + imu_data.orientation.z**2 + imu_data.orientation.w**2)
+            if (quat_length > 0.0):
+                imu_data.orientation.w /= quat_length
+                imu_data.orientation.x /= quat_length
+                imu_data.orientation.y /= quat_length
+                imu_data.orientation.z /= quat_length
+
             imu_data.linear_acceleration.x = float(st.unpack('h', st.pack('BB', buf[32], buf[33]))[0]) / acc_fact
             imu_data.linear_acceleration.y = float(st.unpack('h', st.pack('BB', buf[34], buf[35]))[0]) / acc_fact
             imu_data.linear_acceleration.z = float(st.unpack('h', st.pack('BB', buf[36], buf[37]))[0]) / acc_fact
