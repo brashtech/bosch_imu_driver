@@ -299,6 +299,9 @@ if __name__ == '__main__':
     frame_id = rospy.get_param('~frame_id', 'imu_link')
     frequency = rospy.get_param('~frequency', 100)
     operation_mode = rospy.get_param('~operation_mode', OPER_MODE_NDOF)
+    orientation_covar = rospy.get_param('~orientation_covar', [0.001, 0.0, 0.0, 0.0, 0.001, 0.0, 0.0, 0.0, 0.001])
+    angvel_covar = rospy.get_param('~angvel_covar', [0.0004, 0.0, 0.0, 0.0, 0.0004, 0.0, 0.0, 0.0, 0.0004])
+    acc_covar = rospy.get_param('~acc_covar', [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01])
 
     # Read in calibration offsets from yaml
     acc_offset = rospy.get_param('~acc_offset', ACC_OFFSET_DEFAULT)
@@ -335,10 +338,10 @@ if __name__ == '__main__':
     if not(write_to_dev(ser, UNIT_SEL, 1, 0x83)):
         rospy.logerr("Unable to set IMU units.")
 
-    if not(write_to_dev(ser, AXIS_MAP_CONFIG, 1, 0x24)):
+    if not(write_to_dev(ser, AXIS_MAP_CONFIG, 1, 0x21)):
         rospy.logerr("Unable to remap IMU axis.")
 
-    if not(write_to_dev(ser, AXIS_MAP_SIGN, 1, 0x06)):
+    if not(write_to_dev(ser, AXIS_MAP_SIGN, 1, 0x04)):
         rospy.logerr("Unable to set IMU axis signs.")
 
     # Write out calibration values (JK)
@@ -388,15 +391,15 @@ if __name__ == '__main__':
             imu_raw.header.stamp = read_stamp
             imu_raw.header.frame_id = frame_id
             imu_raw.header.seq = seq
-            imu_raw.orientation_covariance[0] = -1
+            imu_raw.orientation_covariance = orientation_covar
             imu_raw.linear_acceleration.x = float(st.unpack('h', st.pack('BB', buf[0], buf[1]))[0]) / acc_fact
             imu_raw.linear_acceleration.y = float(st.unpack('h', st.pack('BB', buf[2], buf[3]))[0]) / acc_fact
             imu_raw.linear_acceleration.z = float(st.unpack('h', st.pack('BB', buf[4], buf[5]))[0]) / acc_fact
-            imu_raw.linear_acceleration_covariance[0] = -1
+            imu_raw.linear_acceleration_covariance = acc_covar
             imu_raw.angular_velocity.x = float(st.unpack('h', st.pack('BB', buf[12], buf[13]))[0]) / gyr_fact
             imu_raw.angular_velocity.y = float(st.unpack('h', st.pack('BB', buf[14], buf[15]))[0]) / gyr_fact
             imu_raw.angular_velocity.z = float(st.unpack('h', st.pack('BB', buf[16], buf[17]))[0]) / gyr_fact
-            imu_raw.angular_velocity_covariance[0] = -1
+            imu_raw.angular_velocity_covariance = angvel_covar
             pub_raw.publish(imu_raw)
 
             #            print("read: ", binascii.hexlify(buf), "acc = (",imu_data.linear_acceleration.x,
@@ -410,6 +413,7 @@ if __name__ == '__main__':
             imu_data.orientation.x = float(st.unpack('h', st.pack('BB', buf[26], buf[27]))[0])
             imu_data.orientation.y = float(st.unpack('h', st.pack('BB', buf[28], buf[29]))[0])
             imu_data.orientation.z = float(st.unpack('h', st.pack('BB', buf[30], buf[31]))[0])
+            imu_data.orientation_covariance = orientation_covar
             # Convert to unit quaternion
             quat_length = math.sqrt(imu_data.orientation.x**2 + imu_data.orientation.y**2 + imu_data.orientation.z**2 + imu_data.orientation.w**2)
             if (quat_length > 0.0):
@@ -421,11 +425,13 @@ if __name__ == '__main__':
             imu_data.linear_acceleration.x = float(st.unpack('h', st.pack('BB', buf[32], buf[33]))[0]) / acc_fact
             imu_data.linear_acceleration.y = float(st.unpack('h', st.pack('BB', buf[34], buf[35]))[0]) / acc_fact
             imu_data.linear_acceleration.z = float(st.unpack('h', st.pack('BB', buf[36], buf[37]))[0]) / acc_fact
-            imu_data.linear_acceleration_covariance[0] = -1
+            imu_data.linear_acceleration_covariance = acc_covar
+            #imu_data.linear_acceleration_covariance[0] = -1
             imu_data.angular_velocity.x = float(st.unpack('h', st.pack('BB', buf[12], buf[13]))[0]) / gyr_fact
             imu_data.angular_velocity.y = float(st.unpack('h', st.pack('BB', buf[14], buf[15]))[0]) / gyr_fact
             imu_data.angular_velocity.z = float(st.unpack('h', st.pack('BB', buf[16], buf[17]))[0]) / gyr_fact
-            imu_data.angular_velocity_covariance[0] = -1
+            imu_data.angular_velocity_covariance = angvel_covar
+            #imu_data.angular_velocity_covariance[0] = -1
             pub_data.publish(imu_data)
 
             # Publish magnetometer data
