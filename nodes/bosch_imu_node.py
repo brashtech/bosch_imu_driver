@@ -43,9 +43,9 @@ import time
 import math
 
 from sensor_msgs.msg import Imu, Temperature, MagneticField
-from geometry_msgs.msg import Quaternion
+from geometry_msgs.msg import Quaternion, PointStamped
 
-from tf.transformations import quaternion_from_euler
+from tf.transformations import *
 from dynamic_reconfigure.server import Server
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 
@@ -235,9 +235,9 @@ def get_calib_offsets (ser):
         gyro_offset_read_y = (gyro_offset_read[3] << 8) | gyro_offset_read[2]   # Combine MSB and LSB registers into one decimal
         gyro_offset_read_z = (gyro_offset_read[5] << 8) | gyro_offset_read[4]   # Combine MSB and LSB registers into one decimal
 
-        rospy.loginfo('Accel offsets (x y z): %d %d %d, Mag offsets (x y z): %d %d %d, Gyro offsets (x y z): %d %d %d', accel_offset_read_x, accel_offset_read_y, accel_offset_read_z, mag_offset_read_x, mag_offset_read_y, mag_offset_read_z, gyro_offset_read_x, gyro_offset_read_y, gyro_offset_read_z)
+        rospy.logwarn('Accel offsets (x y z): %d %d %d, Mag offsets (x y z): %d %d %d, Gyro offsets (x y z): %d %d %d', accel_offset_read_x, accel_offset_read_y, accel_offset_read_z, mag_offset_read_x, mag_offset_read_y, mag_offset_read_z, gyro_offset_read_x, gyro_offset_read_y, gyro_offset_read_z)
     except:
-        rospy.loginfo('Calibration data cant be read')
+        rospy.logerr('Calibration data cant be read')
 
 # Write out calibration values (define as 16 bit signed hex)
 def set_calib_offsets (ser, acc_offset, mag_offset, gyr_offset):
@@ -276,6 +276,7 @@ def set_calib_offsets (ser, acc_offset, mag_offset, gyr_offset):
 
 
 imu_data = Imu()            # Filtered data
+#imu_data_true = Imu()       # True north oriented data
 imu_raw = Imu()             # Raw IMU data
 temperature_msg = Temperature() # Temperature
 mag_msg = MagneticField()       # Magnetometer data
@@ -287,10 +288,12 @@ if __name__ == '__main__':
 
     # Sensor measurements publishers
     pub_data = rospy.Publisher('imu/data', Imu, queue_size=10)
+    #pub_data_true = rospy.Publisher('imu/data_true', Imu, queue_size=10)
     pub_raw = rospy.Publisher('imu/raw', Imu, queue_size=10)
     pub_mag = rospy.Publisher('imu/mag', MagneticField, queue_size=10)
     pub_temp = rospy.Publisher('imu/temp', Temperature, queue_size=10)
     pub_calib = rospy.Publisher('imu/calib', Quaternion, queue_size=10)
+    pub_rpy = rospy.Publisher('imu/rpy', PointStamped, queue_size=10)
 
     # srv = Server(imuConfig, reconfig_callback)  # define dynamic_reconfigure callback
 
@@ -302,6 +305,9 @@ if __name__ == '__main__':
     orientation_covar = rospy.get_param('~orientation_covar', [0.001, 0.0, 0.0, 0.0, 0.001, 0.0, 0.0, 0.0, 0.001])
     angvel_covar = rospy.get_param('~angvel_covar', [0.0004, 0.0, 0.0, 0.0, 0.0004, 0.0, 0.0, 0.0, 0.0004])
     acc_covar = rospy.get_param('~acc_covar', [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01])
+
+    #heading_offset = rospy.get_param('~declination', 0.0)*math.pi/180.0
+
 
     # Read in calibration offsets from yaml
     acc_offset = rospy.get_param('~acc_offset', ACC_OFFSET_DEFAULT)
@@ -332,6 +338,7 @@ if __name__ == '__main__':
     if not(write_to_dev(ser, PAGE_ID, 1, 0x00)):
         rospy.logerr("Unable to set IMU register page 0.")
 
+    # 0x00 normal, 0x20 reset
     if not(write_to_dev(ser, SYS_TRIGGER, 1, 0x00)):
         rospy.logerr("Unable to start IMU.")
 
@@ -375,7 +382,7 @@ if __name__ == '__main__':
         ###################################
 
         # JK added: Publish calibration status, only call IMU read if calibration hasn't finished
-        j = j+1 # Only run every 10 cycles (10Hz @ 100Hz)
+        j = j+1 # Only run every 100 cycles (1Hz @ 100Hz)
         if (j>=10):
             if (calibrated_state == 0):
                 calib_msg = get_calib_status(ser)
@@ -413,7 +420,9 @@ if __name__ == '__main__':
             imu_data.orientation.x = float(st.unpack('h', st.pack('BB', buf[26], buf[27]))[0])
             imu_data.orientation.y = float(st.unpack('h', st.pack('BB', buf[28], buf[29]))[0])
             imu_data.orientation.z = float(st.unpack('h', st.pack('BB', buf[30], buf[31]))[0])
+            
             imu_data.orientation_covariance = orientation_covar
+
             # Convert to unit quaternion
             quat_length = math.sqrt(imu_data.orientation.x**2 + imu_data.orientation.y**2 + imu_data.orientation.z**2 + imu_data.orientation.w**2)
             if (quat_length > 0.0):
@@ -433,6 +442,25 @@ if __name__ == '__main__':
             imu_data.angular_velocity_covariance = angvel_covar
             #imu_data.angular_velocity_covariance[0] = -1
             pub_data.publish(imu_data)
+
+            # Publish rpy
+            rpy_msg = PointStamped()
+            rpy_msg.header.stamp = read_stamp
+            rpy_msg.header.frame_id = frame_id
+            rpy_msg.header.seq = seq
+            (psi, theta, phi) = euler_from_quaternion((imu_data.orientation.x,imu_data.orientation.y,imu_data.orientation.z,imu_data.orientation.w), axes='rzyx')
+            rpy_msg.point.x = phi
+            rpy_msg.point.y = theta
+            rpy_msg.point.z = psi
+            pub_rpy.publish(rpy_msg)
+
+
+            # Rotate around yaw by offset param (declination)
+            ######################################################
+            #(psi, theta, phi) = euler_from_quaternion((imu_data.orientation.x,imu_data.orientation.y,imu_data.orientation.z,imu_data.orientation.w), axes='rzyx')
+            #psi = psi + heading_offset
+            #(imu_data_true.orientation.x,imu_data_true.orientation.y,imu_data_true.orientation.z,imu_data_true.orientation.w) = quaternion_from_euler(psi, theta, phi, axes='rzyx')
+            #pub_data_true.publish(imu_data_true)
 
             # Publish magnetometer data
             mag_msg.header.stamp = read_stamp
@@ -457,4 +485,8 @@ if __name__ == '__main__':
 
             seq = seq + 1
         rate.sleep()
+    
+    # Reset registers to prevent persisting calibration issue between relaunches
+    write_to_dev(ser, SYS_TRIGGER, 1, 0x20)
+
     ser.close()
