@@ -76,7 +76,7 @@ AXIS_MAP_SIGN = 0x42
 ACC_OFFSET = 0x55
 MAG_OFFSET = 0x5b
 GYR_OFFSET = 0x61
-ACC_RADIUS = 0x68
+ACC_RADIUS = 0x67
 MAG_RADIUS = 0x69
 
 # Page 1 registers
@@ -217,8 +217,8 @@ def get_calib_status (ser):
     return msg
         
 
-# Read all calibration offsets and print to screen (JK)
-def get_calib_offsets (ser):
+# Read all calibration offsets and radii and print to screen (JK)
+def get_calib (ser):
     try:
         accel_offset_read = read_from_dev(ser, ACC_OFFSET, 6)
         accel_offset_read_x = (accel_offset_read[1] << 8) | accel_offset_read[0]   # Combine MSB and LSB registers into one decimal
@@ -237,38 +237,61 @@ def get_calib_offsets (ser):
 
         rospy.logwarn('Accel offsets (x y z): %d %d %d, Mag offsets (x y z): %d %d %d, Gyro offsets (x y z): %d %d %d', accel_offset_read_x, accel_offset_read_y, accel_offset_read_z, mag_offset_read_x, mag_offset_read_y, mag_offset_read_z, gyro_offset_read_x, gyro_offset_read_y, gyro_offset_read_z)
     except:
-        rospy.logerr('Calibration data cant be read')
+        rospy.logerr('Offset data cant be read')
+
+    try:
+        accel_radius_read = read_from_dev(ser, ACC_RADIUS, 2)
+        mag_radius_read = read_from_dev(ser, MAG_RADIUS, 2)
+        accel_radius_read = (accel_radius_read[1] << 8) | accel_radius_read[0]   # Combine MSB and LSB registers into one decimal
+        mag_radius_read = (mag_radius_read[1] << 8) | mag_radius_read[0]   # Combine MSB and LSB registers into one decimal
+        rospy.logwarn('Accel radius: %d, Mag radius: %d', accel_radius_read, mag_radius_read)
+    except:
+        rospy.logerr('Radius data cant be read')
+
 
 # Write out calibration values (define as 16 bit signed hex)
-def set_calib_offsets (ser, acc_offset, mag_offset, gyr_offset):
+def set_calib (ser, acc_offset, mag_offset, gyr_offset, accel_radius, mag_radius):
     # Must switch to config mode to write out
     if not(write_to_dev(ser, OPER_MODE, 1, OPER_MODE_CONFIG)):
        rospy.logerr("Unable to set IMU into config mode.")
-    time.sleep(0.025)
+       return False
+    time.sleep(0.05)
 
     # Seems to only work when writing 1 register at a time
     try:
-        write_to_dev(ser, ACC_OFFSET, 1, acc_offset[0] & 0xFF)                # ACC X LSB
-        write_to_dev(ser, ACC_OFFSET+1, 1, (acc_offset[0] >> 8) & 0xFF)       # ACC X MSB
-        write_to_dev(ser, ACC_OFFSET+2, 1, acc_offset[1] & 0xFF)               
-        write_to_dev(ser, ACC_OFFSET+3, 1, (acc_offset[1] >> 8) & 0xFF)       
-        write_to_dev(ser, ACC_OFFSET+4, 1, acc_offset[2] & 0xFF)               
-        write_to_dev(ser, ACC_OFFSET+5, 1, (acc_offset[2] >> 8) & 0xFF)     
+        if (acc_offset is not None):
+            write_to_dev(ser, ACC_OFFSET, 1, acc_offset[0] & 0xFF)                # ACC X LSB
+            write_to_dev(ser, ACC_OFFSET+1, 1, (acc_offset[0] >> 8) & 0xFF)       # ACC X MSB
+            write_to_dev(ser, ACC_OFFSET+2, 1, acc_offset[1] & 0xFF)               
+            write_to_dev(ser, ACC_OFFSET+3, 1, (acc_offset[1] >> 8) & 0xFF)       
+            write_to_dev(ser, ACC_OFFSET+4, 1, acc_offset[2] & 0xFF)               
+            write_to_dev(ser, ACC_OFFSET+5, 1, (acc_offset[2] >> 8) & 0xFF)     
 
-        write_to_dev(ser, MAG_OFFSET, 1, mag_offset[0] & 0xFF)               
-        write_to_dev(ser, MAG_OFFSET+1, 1, (mag_offset[0] >> 8) & 0xFF)     
-        write_to_dev(ser, MAG_OFFSET+2, 1, mag_offset[1] & 0xFF)               
-        write_to_dev(ser, MAG_OFFSET+3, 1, (mag_offset[1] >> 8) & 0xFF)       
-        write_to_dev(ser, MAG_OFFSET+4, 1, mag_offset[2] & 0xFF)               
-        write_to_dev(ser, MAG_OFFSET+5, 1, (mag_offset[2] >> 8) & 0xFF)       
+        if (mag_offset is not None):
+            write_to_dev(ser, MAG_OFFSET, 1, mag_offset[0] & 0xFF)               
+            write_to_dev(ser, MAG_OFFSET+1, 1, (mag_offset[0] >> 8) & 0xFF)     
+            write_to_dev(ser, MAG_OFFSET+2, 1, mag_offset[1] & 0xFF)               
+            write_to_dev(ser, MAG_OFFSET+3, 1, (mag_offset[1] >> 8) & 0xFF)       
+            write_to_dev(ser, MAG_OFFSET+4, 1, mag_offset[2] & 0xFF)               
+            write_to_dev(ser, MAG_OFFSET+5, 1, (mag_offset[2] >> 8) & 0xFF)       
 
-        write_to_dev(ser, GYR_OFFSET, 1, gyr_offset[0] & 0xFF)                
-        write_to_dev(ser, GYR_OFFSET+1, 1, (gyr_offset[0] >> 8) & 0xFF)       
-        write_to_dev(ser, GYR_OFFSET+2, 1, gyr_offset[1] & 0xFF)               
-        write_to_dev(ser, GYR_OFFSET+3, 1, (gyr_offset[1] >> 8) & 0xFF)       
-        write_to_dev(ser, GYR_OFFSET+4, 1, gyr_offset[2] & 0xFF)               
-        write_to_dev(ser, GYR_OFFSET+5, 1, (gyr_offset[2] >> 8) & 0xFF)            
+        if (gyr_offset is not None):
+            write_to_dev(ser, GYR_OFFSET, 1, gyr_offset[0] & 0xFF)                
+            write_to_dev(ser, GYR_OFFSET+1, 1, (gyr_offset[0] >> 8) & 0xFF)       
+            write_to_dev(ser, GYR_OFFSET+2, 1, gyr_offset[1] & 0xFF)               
+            write_to_dev(ser, GYR_OFFSET+3, 1, (gyr_offset[1] >> 8) & 0xFF)       
+            write_to_dev(ser, GYR_OFFSET+4, 1, gyr_offset[2] & 0xFF)               
+            write_to_dev(ser, GYR_OFFSET+5, 1, (gyr_offset[2] >> 8) & 0xFF)            
 
+        if (accel_radius is not None):
+            write_to_dev(ser, ACC_RADIUS, 1, acc_radius[0] & 0xFF)
+            write_to_dev(ser, ACC_RADIUS+1, 1, (acc_radius[0] >> 8) & 0xFF)
+
+        if (mag_radius is not None):
+            write_to_dev(ser, MAG_RADIUS, 1, mag_radius[0] & 0xFF)
+            write_to_dev(ser, MAG_RADIUS+1, 1, (mag_radius[0] >> 8) & 0xFF)
+
+        time.sleep(0.05)
         return True
 
     except:
@@ -310,9 +333,15 @@ if __name__ == '__main__':
 
 
     # Read in calibration offsets from yaml
-    acc_offset = rospy.get_param('~acc_offset', ACC_OFFSET_DEFAULT)
-    mag_offset = rospy.get_param('~mag_offset', MAG_OFFSET_DEFAULT)
-    gyr_offset = rospy.get_param('~gyr_offset', GYR_OFFSET_DEFAULT)
+    acc_offset = rospy.get_param('~acc_offset', None)
+    mag_offset = rospy.get_param('~mag_offset', None)
+    gyr_offset = rospy.get_param('~gyr_offset', None)
+
+    acc_radius = rospy.get_param('~acc_radius', None)
+    mag_radius = rospy.get_param('~mag_radius', None)
+
+    display_calibration = rospy.get_param('~display_calibration', 0)
+    reset = rospy.get_param('~reset', 1)
 
     # Open serial port
     rospy.loginfo("Opening serial port: %s...", port)
@@ -352,8 +381,8 @@ if __name__ == '__main__':
         rospy.logerr("Unable to set IMU axis signs.")
 
     # Write out calibration values (JK)
-    if not(set_calib_offsets(ser, acc_offset, mag_offset, gyr_offset)):
-       rospy.logerr("Unable to set calibration offsets.")
+    if not(set_calib(ser, acc_offset, mag_offset, gyr_offset, acc_radius, mag_radius)):
+        rospy.logerr("Unable to set calibration offsets.")
 
     if not(write_to_dev(ser, OPER_MODE, 1, operation_mode)):
         rospy.logerr("Unable to set IMU operation mode into operation mode.")
@@ -378,17 +407,21 @@ if __name__ == '__main__':
     while not rospy.is_shutdown():
         ########### DEBUG (JK) ############
         #get_calib_status(ser)
-        #get_calib_offsets(ser)
+        #get_calib(ser)
         ###################################
 
         # JK added: Publish calibration status, only call IMU read if calibration hasn't finished
         j = j+1 # Only run every 100 cycles (1Hz @ 100Hz)
-        if (j>=10):
-            if (calibrated_state == 0):
-                calib_msg = get_calib_status(ser)
-                if (calib_msg.x == 3 and calib_msg.y == 3 and calib_msg.z == 3 and calib_msg.w == 3):
-                    calibrated_state = 1
+        if (j>=100):
+            calib_msg = get_calib_status(ser)
+            if (calib_msg.x == 3 and calib_msg.y == 3 and calib_msg.z == 3 and calib_msg.w == 3):
+                calibrated_state = 1
+            else:
+                calibrated_state = -1
             pub_calib.publish(calib_msg)
+
+            if (display_calibration == True):
+                get_calib(ser)
             j = 0
         ##################################
 
@@ -487,6 +520,7 @@ if __name__ == '__main__':
         rate.sleep()
     
     # Reset registers to prevent persisting calibration issue between relaunches
-    write_to_dev(ser, SYS_TRIGGER, 1, 0x20)
+    if (reset==1):
+        write_to_dev(ser, SYS_TRIGGER, 1, 0x20)
 
     ser.close()
