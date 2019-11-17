@@ -133,28 +133,28 @@ def read_from_dev(ser, reg_addr, length):
         ser.write(buf_out)
         ser.flushOutput()
         buf_out.pop()
-        rospy.sleep(0.0003)
+        rospy.sleep(0.0002)
 
         buf_out.append(READ)
         #ser.flushInput()
         ser.write(buf_out)
         #ser.flushOutput()
         buf_out.pop()
-        rospy.sleep(0.0003)
+        rospy.sleep(0.0002)
 
         buf_out.append(reg_addr)
         #ser.flushInput()
         ser.write(buf_out)
         #ser.flushOutput()
         buf_out.pop()
-        rospy.sleep(0.0003)
+        rospy.sleep(0.0002)
 
         buf_out.append(length)
         #ser.flushInput()
         ser.write(buf_out)
         #ser.flushOutput()
         buf_out.pop()
-        rospy.sleep(0.0003)
+        rospy.sleep(0.0002)
 
         global read_stamp
         read_stamp = rospy.Time.now()
@@ -166,7 +166,7 @@ def read_from_dev(ser, reg_addr, length):
 
     # Check if response is correct
     if (buf_in.__len__() != (2 + length)) or (buf_in[0] != START_BYTE_RESP):
-        rospy.logerr("Incorrect Bosch IMU device response.")
+        #rospy.logerr("Incorrect Bosch IMU device response.")
         return 0
     buf_in.pop(0)
     buf_in.pop(0)
