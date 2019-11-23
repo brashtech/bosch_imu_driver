@@ -309,20 +309,11 @@ calib_msg = Quaternion()    # Calibration data
 if __name__ == '__main__':
     rospy.init_node("bosch_imu_node")
 
-    # Sensor measurements publishers
-    pub_data = rospy.Publisher('imu/data', Imu, queue_size=10)
-    #pub_data_true = rospy.Publisher('imu/data_true', Imu, queue_size=10)
-    pub_raw = rospy.Publisher('imu/raw', Imu, queue_size=10)
-    pub_mag = rospy.Publisher('imu/mag', MagneticField, queue_size=10)
-    pub_temp = rospy.Publisher('imu/temp', Temperature, queue_size=10)
-    pub_calib = rospy.Publisher('imu/calib', Quaternion, queue_size=10)
-    pub_rpy = rospy.Publisher('imu/rpy', PointStamped, queue_size=10)
-
     # srv = Server(imuConfig, reconfig_callback)  # define dynamic_reconfigure callback
 
     # Get parameters values
     port = rospy.get_param('~port', '/dev/ttyUSB0')
-    frame_id = rospy.get_param('~frame_id', 'imu_link')
+    frame_id = rospy.get_param('~frame_id', 'imu')
     frequency = rospy.get_param('~frequency', 100)
     operation_mode = rospy.get_param('~operation_mode', OPER_MODE_NDOF)
     orientation_covar = rospy.get_param('~orientation_covar', [0.001, 0.0, 0.0, 0.0, 0.001, 0.0, 0.0, 0.0, 0.001])
@@ -330,6 +321,15 @@ if __name__ == '__main__':
     acc_covar = rospy.get_param('~acc_covar', [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01])
 
     #heading_offset = rospy.get_param('~declination', 0.0)*math.pi/180.0
+
+    # Sensor measurements publishers
+    pub_data = rospy.Publisher(frame_id+'/data', Imu, queue_size=10)
+    #pub_data_true = rospy.Publisher('imu/data_true', Imu, queue_size=10)
+    pub_raw = rospy.Publisher(frame_id+'/raw', Imu, queue_size=10)
+    pub_mag = rospy.Publisher(frame_id+'/mag', MagneticField, queue_size=10)
+    pub_temp = rospy.Publisher(frame_id+'/temp', Temperature, queue_size=10)
+    pub_calib = rospy.Publisher(frame_id+'/calib', Quaternion, queue_size=10)
+    pub_rpy = rospy.Publisher(frame_id+'/rpy', PointStamped, queue_size=10)
 
 
     # Read in calibration offsets from yaml
